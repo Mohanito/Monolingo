@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 
 const VideoPage: React.FC = () => {
 
@@ -7,7 +7,7 @@ const VideoPage: React.FC = () => {
             video: { width: 600, height: 400 },
             audio: true
         })
-            .then((stream) => {
+            .then((stream: MediaStream) => {
                 const myVideo: HTMLVideoElement | null = document.querySelector('#myVideo');
                 if (myVideo) {
                     myVideo.srcObject = stream;
