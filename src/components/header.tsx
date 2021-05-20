@@ -2,10 +2,10 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 
 const Header: React.FC = () => {
-    return <div>
+    return <nav>
         <Link to="/">Home</Link>
         <Link to="/video">Video</Link>
-    </div>
+    </nav>
 }
 
 export default Header;

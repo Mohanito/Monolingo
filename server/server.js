@@ -1,15 +1,10 @@
 const express = require('express');
-
 const app = express();
 
-app.get('/', (req, res) => {
-    res.send('Hello World!')
-})
-
-app.get('/api', (req, res) => {
-    res.send('testing api request by client');
-})
+// External JS Libraries
+const server = require('http').createServer(app);
+const io = require('socket.io')(server);
 
 app.listen(3001, () => {
-    console.log(`Server listening at http://localhost:3001`)
+    console.log(`Server listening at http://localhost:3001`);
 })

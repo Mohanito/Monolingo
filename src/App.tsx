@@ -10,12 +10,8 @@ const App: React.FC = () => {
         <Router>
             <Header />
             <Switch>
-                <Route path="/" exact>
-                    <HomePage />
-                </Route>
-                <Route path="/video" exact>
-                    <VideoPage />
-                </Route>
+                <Route path="/" exact component={HomePage} />
+                <Route path="/video/:roomId" component={VideoPage} />
             </Switch>
         </Router>
     );
