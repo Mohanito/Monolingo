@@ -21,13 +21,15 @@ const HomePage: React.FC<RouteComponentProps> = (props) => {
     }
 
     return (
-        <div>
-            Home page
-            <button onClick={createRoom}>Create Room</button>
+        <div className="container">
+            <p>Home page</p>
+            <button onClick={createRoom} className="btn btn-secondary">
+                Create Random Room ID
+            </button>
             <form onSubmit={handleSubmit}>
                 <label htmlFor="roomId">Enter Room ID</label>
                 <input type="text" id="roomId" onChange={handleChange}></input>
-                <button>Join Room</button>
+                <button className="btn btn-secondary">Join Room</button>
             </form>
         </div>
     );

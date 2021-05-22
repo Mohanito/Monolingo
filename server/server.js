@@ -14,10 +14,19 @@ app.use(cors());
 
 io.on("connection", (socket) => {
     console.log('Socket.io: New user connection');
-    socket.on('join-room', (roomId) => {
+    socket.on('join-room', (roomId, username) => {
         socket.join(roomId);
-        console.log(`Socket.io: A user joined room ${roomId}`);
-        socket.to(roomId).emit('user-connected');   // broadcast
+        console.log(`Socket.io: ${username} joined room ${roomId}`);
+        socket.to(roomId).emit('user-connected', username);   // broadcast
+
+        socket.on('send-message', (message) => {
+            socket.to(roomId).emit('broadcast-message', username, message);
+        });
+
+        socket.on('disconnect', () => {
+            console.log(`Socket.io: ${username} left room ${roomId}`);
+            socket.to(roomId).emit('user-disconnected', username);
+        })
     })
 });
 
