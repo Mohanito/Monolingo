@@ -2,12 +2,23 @@ import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import socketIOClient, { Socket } from "socket.io-client";
 import { DefaultEventsMap } from 'socket.io-client/build/typed-events';
+import Peer from 'peerjs';
 const ENDPOINT = "http://localhost:3001";
 
+interface PeerProfile {
+    username: string
+}
+
+interface PeerProfiles {
+    [peerId: string]: PeerProfile
+}
+
 const VideoPage: React.FC = (props) => {
-    const [socket, setSocket] = useState<Socket<DefaultEventsMap, DefaultEventsMap> | null>(null);
+    const [socket] = useState<Socket<DefaultEventsMap, DefaultEventsMap> | null>(socketIOClient(ENDPOINT));
     const [roomId] = useState<string>(useParams<{ roomId: string }>().roomId);
     const [message, setMessage] = useState<string>('');
+    const [peer] = useState(new Peer());
+    const [peerProfiles] = useState<PeerProfiles>({});
 
     const appendMessage = (message: string) => {    //, style = undefined
         // check out useRef
@@ -29,18 +40,28 @@ const VideoPage: React.FC = (props) => {
         e.preventDefault();
         if (message !== '') {
             appendMessage(message);
-            if (socket !== null)
+            if (socket !== null) {
                 socket.emit('send-message', message);
+            }
         }
+        setMessage('');
     }
 
     useEffect(() => {
-        if (socket == null)
-            setSocket(socketIOClient(ENDPOINT));
+        peer.on('open', () => {
+            console.log(peer.id);
+        });
+        peerProfiles['dummy'] = {username: 'dummy-username'};
         if (socket !== null) {
-            socket.emit('join-room', roomId, 'username');
+            socket.emit('join-room', roomId, peer.id);
             socket.on('user-connected', (username) => {
-                console.log(`Socket.io: ${username} joined room ${roomId}`);
+                appendMessage(`Socket.io: ${username} joined room ${roomId}`);
+                console.log('oink', peer.id);
+                console.log('oink', username);
+                peerProfiles[peer.id] = {   // fixme
+                    username: username
+                };
+                console.log(peerProfiles);
             });
 
             socket.on('broadcast-message', (username, message) => {
@@ -49,36 +70,38 @@ const VideoPage: React.FC = (props) => {
             })
 
             socket.on('user-disconnected', (username) => {
-                console.log(`Socket.io: ${username} left.`);
+                appendMessage(`Socket.io: ${username} left.`);
             })
         }
 
-        // navigator.mediaDevices.getUserMedia({
-        //     video: { width: 300, height: 300 },
-        //     audio: true
-        // })
-        //     .then((stream: MediaStream) => {
-        //         const myVideo: HTMLVideoElement | null = document.querySelector('#myVideo');
-        //         if (myVideo) {
-        //             myVideo.srcObject = stream;
-        //             myVideo.muted = true;
-        //         }
-        //     })
-        //     .catch((error) => {
-        //         console.log('getUserMedia: Failed to get local stream', error);
-        //     })
+        navigator.mediaDevices.getUserMedia({
+            video: { width: 50, height: 50 },
+            audio: true
+        })
+            .then((stream: MediaStream) => {
+                const myVideo: HTMLVideoElement | null = document.querySelector('#myVideo');
+                if (myVideo) {
+                    myVideo.srcObject = stream;
+                    myVideo.muted = true;
+                }
+                peer.on('call', (mediaConnection) => {
+                    return;
+                })
+            })
+            .catch((error) => {
+                console.log('getUserMedia: Failed to get local stream', error);
+            })
 
         // useEffect return
         return () => {
             if (socket)
                 socket.disconnect();
         };
-    });
+    }, []);
 
     return (
         <div>
             <h5>Room {roomId}</h5>
-            {/* <video id="myVideo" autoPlay={true}></video> */}
             {/* Message Board */}
             <div className="container vh-100">
                 <div className="card shadow h-100">
@@ -89,10 +112,11 @@ const VideoPage: React.FC = (props) => {
                     </div>
                 </div>
                 <form onSubmit={onMessageSubmit}>
-                    <input type="text" onChange={onMessageChange} />
+                    <input type="text" onChange={onMessageChange} value={message} />
                     <button className="btn btn-secondary">Send</button>
                 </form>
             </div>
+            <video id="myVideo" autoPlay={true}></video>
         </div>
     );
 }
