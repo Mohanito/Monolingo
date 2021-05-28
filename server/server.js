@@ -25,7 +25,7 @@ io.on("connection", (socket) => {
 
         socket.on('disconnect', () => {
             console.log(`Socket.io: ${username} left room ${roomId}`);
-            socket.to(roomId).emit('user-disconnected', username);
+            socket.to(roomId).emit('user-disconnected', username, peerId);
         })
     })
 });
