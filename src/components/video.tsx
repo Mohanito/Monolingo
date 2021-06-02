@@ -10,10 +10,6 @@ interface PeerProfile {
     stream: MediaStream | null
 }
 
-interface PeerProfiles {
-    [peerId: string]: PeerProfile
-}
-
 interface PeerConnections {
     [peerId: string]: Peer.MediaConnection
 }
@@ -22,13 +18,119 @@ const VideoPage: React.FC = (props) => {
     const socket = useRef<Socket<DefaultEventsMap, DefaultEventsMap>>(socketIOClient(ENDPOINT));
     const [roomId] = useState<string>(useParams<{ roomId: string }>().roomId);
     const [message, setMessage] = useState<string>('');
+    // Peer.js States
     const [peer] = useState(new Peer());
-    const [peerProfiles, setPeerProfiles] = useState<PeerProfiles>({});
+    const [peerProfiles, setPeerProfiles] = useState<Array<PeerProfile>>([]);
     const peerConnections = useRef<PeerConnections>({});
+    // DOM Element Refs
     const messageBoard = useRef<HTMLDivElement>(null);
-    const videoContainer = useRef<HTMLDivElement>(null);
-    const peerList = useRef<Array<string>>([]);
     const myVideoStream = useRef<MediaStream | null>();
+
+    useEffect(() => {
+        peer.on('open', () => {
+            // socket emit has to be placed here; otherwise it emits before peer opens
+            socket.current.emit('join-room', roomId, peer.id, peer.id);
+        });
+
+        socket.current.on('broadcast-message', (username: string, message: string) => {
+            appendMessage(`${username} (Original): ${message}`);
+        })
+
+        socket.current.on('user-disconnected', (username: string, peerId: string) => {
+            appendMessage(`Socket.io: ${username} left.`);
+            peerConnections.current[peerId]!.close();
+        })
+
+        navigator.mediaDevices.getUserMedia({
+            video: { width: 100, height: 100 },
+            audio: true
+        })
+            .then((myStream: MediaStream) => {
+                myVideoStream.current = myStream;  // saving stream in ref in order to close after exiting
+                const myVideo: HTMLVideoElement | null = document.querySelector('#myVideo');
+                if (myVideo) {
+                    myVideo.srcObject = myStream;
+                    myVideo.muted = true;
+                }
+
+                socket.current.on('user-connected', (username: string, peerId: string) => {
+                    appendMessage(`Socket.io: ${username} joined room ${roomId}`);
+
+                    // call new user
+                    const mediaConnection = peer.call(peerId, myStream);
+
+                    mediaConnection.on('stream', (remoteStream) => {
+                        if (peerProfiles.find((profile) => profile.username === mediaConnection.peer))
+                            return;
+                        appendPeerProfile(mediaConnection.peer, remoteStream);
+                    });
+
+                    mediaConnection.on('close', () => {
+                        removePeerProfile(mediaConnection.peer);
+                    });
+
+                    peerConnections.current[mediaConnection.peer] = mediaConnection;
+                });
+
+                peer.on('call', (mediaConnection) => {
+                    mediaConnection.answer(myStream);
+
+                    mediaConnection.on('stream', (remoteStream) => {
+                        if (peerProfiles.find((profile) => profile.username === mediaConnection.peer))
+                            return;
+                        appendPeerProfile(mediaConnection.peer, remoteStream);
+                    });
+
+                    mediaConnection.on('close', () => {
+                        removePeerProfile(mediaConnection.peer);
+                    });
+
+                    peerConnections.current[mediaConnection.peer] = mediaConnection;
+                })
+            })
+            .catch((error) => {
+                console.log('getUserMedia: Failed to get local stream', error);
+            })
+
+        // useEffect return
+        return () => {
+            if (socket)
+                socket.current.disconnect();
+            if (myVideoStream.current) {
+                myVideoStream.current.getTracks().forEach(function (track) {
+                    if (track.readyState === 'live') {
+                        track.stop();
+                    }
+                });
+            }
+        };
+    }, []);
+
+    function removePeerProfile(peerId: string) {
+        let i = 0, found = false;
+        for (; i < peerProfiles.length; i++) {
+            if (peerProfiles[i].username === peerId) {
+                found = true;
+                break;
+            }
+        }
+        if (found) {
+            const newPeerProfiles = peerProfiles;
+            newPeerProfiles.splice(i, 1);
+            setPeerProfiles([...newPeerProfiles]);
+        }
+        return;
+    }
+
+    function appendPeerProfile(username: string, stream: MediaStream) {
+        const newPeerProfiles = peerProfiles;
+        newPeerProfiles.push({
+            username: username,
+            stream: stream
+        });
+        setPeerProfiles([...newPeerProfiles]);
+        return;
+    }
 
     function appendMessage(message: string) {    //, style = undefined
         const msg = document.createElement('p');
@@ -54,171 +156,70 @@ const VideoPage: React.FC = (props) => {
         setMessage('');
     }
 
-    useEffect(() => {
-        peer.on('open', () => {
-            // socket emit has to be placed here; otherwise it emits before peer opens
-            socket.current.emit('join-room', roomId, 'dummy-username', peer.id);
-        });
-
-        socket.current.on('broadcast-message', (username: string, message: string) => {
-            appendMessage(`${username} (Original): ${message}`);
-        })
-
-        socket.current.on('user-disconnected', (username: string, peerId: string) => {
-            appendMessage(`Socket.io: ${username} left.`);
-            peerConnections.current[peerId]!.close();
-        })
-
-        navigator.mediaDevices.getUserMedia({
-            video: { width: 50, height: 50 },
-            audio: true
-        })
-            .then((myStream: MediaStream) => {
-                myVideoStream.current = myStream;  // saving stream in ref in order to close after exiting
-                const myVideo: HTMLVideoElement | null = document.querySelector('#myVideo');
-                if (myVideo) {
-                    myVideo.srcObject = myStream;
-                    myVideo.muted = true;
-                }
-
-                socket.current.on('user-connected', (username: string, peerId: string) => {
-                    appendMessage(`Socket.io: ${username} joined room ${roomId}`);
-
-                    // call new user
-                    const mediaConnection = peer.call(peerId, myStream);
-
-                    mediaConnection.on('stream', (remoteStream) => {
-                        if (peerList.current.find((elem) => elem === mediaConnection.peer))
-                            return;
-                        console.log('executed 1');
-                        let newPeerProfiles: PeerProfiles = { ...peerProfiles };
-                        newPeerProfiles[peerId] = {
-                            username: username,
-                            stream: remoteStream
-                        };
-                        setPeerProfiles(newPeerProfiles);
-                        peerList.current.push(mediaConnection.peer);
-                    });
-
-                    mediaConnection.on('close', () => {
-                        // document.getElementById('video2')!.remove(); //`col-${peerId}`
-                        let newPeerProfiles: PeerProfiles = { ...peerProfiles };
-                        delete (newPeerProfiles[mediaConnection.peer])
-                        // remove from peerList
-                        const index = peerList.current.indexOf(mediaConnection.peer);
-                        if (index > -1) {
-                            peerList.current.splice(index, 1);
-                        }
-                        setPeerProfiles(newPeerProfiles);
-                    });
-
-                    peerConnections.current[mediaConnection.peer] = mediaConnection;
-                });
-
-                peer.on('call', (mediaConnection) => {
-                    mediaConnection.answer(myStream);
-
-                    mediaConnection.on('stream', (remoteStream) => {
-                        if (peerList.current.find((elem) => elem === mediaConnection.peer))
-                            return;
-                        console.log('executed 1');
-                        let newPeerProfiles: PeerProfiles = { ...peerProfiles };
-                        newPeerProfiles[mediaConnection.peer] = {
-                            username: mediaConnection.peer,
-                            stream: remoteStream
-                        };
-                        setPeerProfiles(newPeerProfiles);
-                        peerList.current.push(mediaConnection.peer);
-                    });
-
-                    mediaConnection.on('close', () => {
-                        // document.getElementById('video2')!.remove(); //`col-${peerId}`
-                        let newPeerProfiles: PeerProfiles = { ...peerProfiles };
-                        delete (newPeerProfiles[mediaConnection.peer]);
-                        setPeerProfiles(newPeerProfiles);
-                        // remove from peerList
-                        const index = peerList.current.indexOf(mediaConnection.peer);
-                        if (index > -1) {
-                            peerList.current.splice(index, 1);
-                        }
-                    });
-
-                    peerConnections.current[mediaConnection.peer] = mediaConnection;
-                })
-            })
-            .catch((error) => {
-                console.log('getUserMedia: Failed to get local stream', error);
-            })
-
-        // useEffect return
-        return () => {
-            if (socket)
-                socket.current.disconnect();
-            if (myVideoStream.current) {
-                myVideoStream.current.getTracks().forEach(function(track) {
-                    if (track.readyState == 'live') {
-                        track.stop();
-                    }
-                });
-            } 
-        };
-    }, []);
-
     function renderVideos() {
+        console.log('rendering videos...')
+        console.log(peerProfiles);
         let videos = [];
-        for (let key in peerProfiles) {
-            const videoId = `video-${key}`;
-            const video = 
-                <video key={videoId} id={videoId} autoPlay={true} style={{ width: 100, height: 100 }}></video>
-            
+        for (let profile of peerProfiles) {
+            // const videoId = `video-${profile.username}`;
+            const video =
+                <div className="col p-0" key={`col-${profile.username}`}>
+                    <video key={`video-${profile.username}`} id={`video-${profile.username}`}
+                        autoPlay={true}
+                        style={{ width: 100, height: 100 }}>
+                    </video>
+                </div>
+
             videos.push(video);
         }
-        return (
-            <div className="container">
-                <p>Video list render</p>
-                {videos}
-            </div>
-        );
+        if (videos.length === 0) {
+            return <div className="col p-0" style={{ width: 100, height: 100 }}>Waiting for other users to join...</div>
+        }
+        return (<>
+            {videos}
+            {renderVideoStreams()}
+        </>);
     }
 
     function renderVideoStreams() {
         setTimeout(() => {
-            for (let key in peerProfiles) {
-                // console.log('searching video element... render video streams')
-                const video: HTMLVideoElement | null = document.querySelector(`#video-${key}`);
+            for (let profile of peerProfiles) {
+                const video: HTMLVideoElement | null = document.querySelector(`#video-${profile.username}`);
                 if (video) {
-                    // console.log('found one video in renderVideoStreams')
-                    video.srcObject = peerProfiles[key].stream;
+                    video.srcObject = profile.stream;
                 }
             }
         }, 1000);
     }
 
     return (
-        <div className='row' style={{minHeight: '90vh'}}>
-            <h5>Room {roomId}</h5>
-            {/* Video list */}
-            <div className="container" ref={videoContainer}>
-                <div className="p">myvideo</div>
-                <video id="myVideo" autoPlay={true}></video>
+        <div className='row' style={{ minHeight: '100vh' }}>
+
+            <div className='col-md-6 col-lg-9'>
+                <h5>Room {roomId}</h5>
+                {/* <div className="d-flex justify-content-center"> */}
+                <div className="row container-fluid row-cols-1 row-cols-lg-2">
+                    <div className="col p-0">
+                        <video id="myVideo" autoPlay={true}></video>
+                    </div>
+                    {renderVideos()}
+                </div>
+                {/* </div> */}
             </div>
 
-            {renderVideos()}
-            {renderVideoStreams()}
-
             {/* Message Board */}
-            <div className="container vh-100">
+            <div className="col p-0">
                 <div className="card shadow h-100">
                     <h6 className="card-header bg-success">
                         Messages
-                    </h6>
-                    <div ref={messageBoard} className="container h-100 bg-dark" style={{ overflowY: 'scroll' }}>
+                        </h6>
+                    <div ref={messageBoard} className="container bg-dark" style={{ overflowY: 'scroll', height: '90%' }}>
                     </div>
+                    <form onSubmit={onMessageSubmit}>
+                        <input type="text" onChange={onMessageChange} value={message} />
+                        <button className="btn btn-secondary">Send</button>
+                    </form>
                 </div>
-                <form onSubmit={onMessageSubmit}>
-                    <input type="text" onChange={onMessageChange} value={message} />
-                    <button className="btn btn-secondary">Send</button>
-                </form>
             </div>
 
         </div>
