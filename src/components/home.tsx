@@ -21,7 +21,7 @@ const HomePage: React.FC<RouteComponentProps> = (props) => {
     }
 
     return (
-        <div className="container">
+        <div className="container min-vh-100">
             <p>Home page</p>
             <button onClick={createRoom} className="btn btn-secondary">
                 Create Random Room ID

@@ -6,7 +6,8 @@ import Peer from 'peerjs';
 const ENDPOINT = "http://localhost:3001";
 
 interface PeerProfile {
-    username: string
+    username: string,
+    stream: MediaStream | null
 }
 
 interface PeerProfiles {
@@ -22,10 +23,12 @@ const VideoPage: React.FC = (props) => {
     const [roomId] = useState<string>(useParams<{ roomId: string }>().roomId);
     const [message, setMessage] = useState<string>('');
     const [peer] = useState(new Peer());
-    const [peerProfiles] = useState<PeerProfiles>({});
+    const [peerProfiles, setPeerProfiles] = useState<PeerProfiles>({});
     const peerConnections = useRef<PeerConnections>({});
     const messageBoard = useRef<HTMLDivElement>(null);
-    // const myStream = useRef<MediaStream | null>();
+    const videoContainer = useRef<HTMLDivElement>(null);
+    const peerList = useRef<Array<string>>([]);
+    const myVideoStream = useRef<MediaStream | null>();
 
     function appendMessage(message: string) {    //, style = undefined
         const msg = document.createElement('p');
@@ -71,7 +74,7 @@ const VideoPage: React.FC = (props) => {
             audio: true
         })
             .then((myStream: MediaStream) => {
-                // myStream.current = stream;
+                myVideoStream.current = myStream;  // saving stream in ref in order to close after exiting
                 const myVideo: HTMLVideoElement | null = document.querySelector('#myVideo');
                 if (myVideo) {
                     myVideo.srcObject = myStream;
@@ -80,22 +83,33 @@ const VideoPage: React.FC = (props) => {
 
                 socket.current.on('user-connected', (username: string, peerId: string) => {
                     appendMessage(`Socket.io: ${username} joined room ${roomId}`);
-                    peerProfiles[peerId] = {
-                        username: username
-                    };
+
                     // call new user
                     const mediaConnection = peer.call(peerId, myStream);
 
-                    // onStream(mediaConnection, peerId);
                     mediaConnection.on('stream', (remoteStream) => {
-                        const video2: HTMLVideoElement | null = document.querySelector('#video2');
-                        if (video2)
-                            video2.srcObject = remoteStream;
+                        if (peerList.current.find((elem) => elem === mediaConnection.peer))
+                            return;
+                        console.log('executed 1');
+                        let newPeerProfiles: PeerProfiles = { ...peerProfiles };
+                        newPeerProfiles[peerId] = {
+                            username: username,
+                            stream: remoteStream
+                        };
+                        setPeerProfiles(newPeerProfiles);
+                        peerList.current.push(mediaConnection.peer);
                     });
 
-                    // onClose(mediaConnection, peerId);
                     mediaConnection.on('close', () => {
-                        document.getElementById('video2')!.remove(); //`col-${peerId}`
+                        // document.getElementById('video2')!.remove(); //`col-${peerId}`
+                        let newPeerProfiles: PeerProfiles = { ...peerProfiles };
+                        delete (newPeerProfiles[mediaConnection.peer])
+                        // remove from peerList
+                        const index = peerList.current.indexOf(mediaConnection.peer);
+                        if (index > -1) {
+                            peerList.current.splice(index, 1);
+                        }
+                        setPeerProfiles(newPeerProfiles);
                     });
 
                     peerConnections.current[mediaConnection.peer] = mediaConnection;
@@ -104,16 +118,29 @@ const VideoPage: React.FC = (props) => {
                 peer.on('call', (mediaConnection) => {
                     mediaConnection.answer(myStream);
 
-                    // onStream(mediaConnection, peerId);
                     mediaConnection.on('stream', (remoteStream) => {
-                        const video2: HTMLVideoElement | null = document.querySelector('#video2');
-                        if (video2)
-                            video2.srcObject = remoteStream;
+                        if (peerList.current.find((elem) => elem === mediaConnection.peer))
+                            return;
+                        console.log('executed 1');
+                        let newPeerProfiles: PeerProfiles = { ...peerProfiles };
+                        newPeerProfiles[mediaConnection.peer] = {
+                            username: mediaConnection.peer,
+                            stream: remoteStream
+                        };
+                        setPeerProfiles(newPeerProfiles);
+                        peerList.current.push(mediaConnection.peer);
                     });
 
-                    // onClose(mediaConnection, peerId);
                     mediaConnection.on('close', () => {
-                        document.getElementById('video2')!.remove(); //`col-${peerId}`
+                        // document.getElementById('video2')!.remove(); //`col-${peerId}`
+                        let newPeerProfiles: PeerProfiles = { ...peerProfiles };
+                        delete (newPeerProfiles[mediaConnection.peer]);
+                        setPeerProfiles(newPeerProfiles);
+                        // remove from peerList
+                        const index = peerList.current.indexOf(mediaConnection.peer);
+                        if (index > -1) {
+                            peerList.current.splice(index, 1);
+                        }
                     });
 
                     peerConnections.current[mediaConnection.peer] = mediaConnection;
@@ -127,17 +154,57 @@ const VideoPage: React.FC = (props) => {
         return () => {
             if (socket)
                 socket.current.disconnect();
+            if (myVideoStream.current) {
+                myVideoStream.current.getTracks().forEach(function(track) {
+                    if (track.readyState == 'live') {
+                        track.stop();
+                    }
+                });
+            } 
         };
     }, []);
 
+    function renderVideos() {
+        let videos = [];
+        for (let key in peerProfiles) {
+            const videoId = `video-${key}`;
+            const video = 
+                <video key={videoId} id={videoId} autoPlay={true} style={{ width: 100, height: 100 }}></video>
+            
+            videos.push(video);
+        }
+        return (
+            <div className="container">
+                <p>Video list render</p>
+                {videos}
+            </div>
+        );
+    }
+
+    function renderVideoStreams() {
+        setTimeout(() => {
+            for (let key in peerProfiles) {
+                // console.log('searching video element... render video streams')
+                const video: HTMLVideoElement | null = document.querySelector(`#video-${key}`);
+                if (video) {
+                    // console.log('found one video in renderVideoStreams')
+                    video.srcObject = peerProfiles[key].stream;
+                }
+            }
+        }, 1000);
+    }
+
     return (
-        <div>
+        <div className='row' style={{minHeight: '90vh'}}>
             <h5>Room {roomId}</h5>
             {/* Video list */}
-            <div className="container">
+            <div className="container" ref={videoContainer}>
+                <div className="p">myvideo</div>
                 <video id="myVideo" autoPlay={true}></video>
-                <video id="video2" autoPlay={true}></video>
             </div>
+
+            {renderVideos()}
+            {renderVideoStreams()}
 
             {/* Message Board */}
             <div className="container vh-100">
